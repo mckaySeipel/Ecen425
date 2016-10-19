@@ -23,15 +23,19 @@ typedef struct {
 	} task_t;
 
 extern unsigned int YKCtxSwCount;
+extern unsigned int YKIdleCount;
 
 void YKEnterMutex();
 void YKExitMutex();
-void YKEnterISR();
-void YKExitISR();
 void YKDispatcher(int * sp, task_t * tcb);
 void saveContext();
 void restoreContext();
 void NoOp();
+//increment the depth of isr calls
+void YKEnterISR();
+//decrement the depth of isr calls, call schedular if last isr
+void YKExitISR();
+
 
 //Initialize
 void YKInitialize();

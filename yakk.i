@@ -24,15 +24,19 @@ typedef struct {
  } task_t;
 
 extern unsigned int YKCtxSwCount;
+extern unsigned int YKIdleCount;
 
 void YKEnterMutex();
 void YKExitMutex();
-void YKEnterISR();
-void YKExitISR();
 void YKDispatcher(int * sp, task_t * tcb);
 void saveContext();
 void restoreContext();
 void NoOp();
+
+void YKEnterISR();
+
+void YKExitISR();
+
 
 
 void YKInitialize();
@@ -92,10 +96,8 @@ int* currTask;
 int currIndex = 0;
 int YKTickNum = 0;
 
-int YKIdleCount = 0;
+unsigned int YKIdleCount = 0;
 unsigned int taskCount = 0;
-
-int tick = 0;
 
 unsigned int interrupt_depth = 0;
 unsigned int YKCtxSwCount;
@@ -123,7 +125,7 @@ void InitStack(void (*task)(void))
  *(tasks[taskCount].stack_pointer) = (int)task;
  tasks[taskCount].stack_pointer--;
  *(tasks[taskCount].stack_pointer) = (int) base_pointer;
- for(i = 0 ; i < 7; i++)
+ for(i = 0 ; i < 8; i++)
  {
   tasks[taskCount].stack_pointer--;
 
@@ -133,12 +135,14 @@ void InitStack(void (*task)(void))
 
 
 void YKNewTask(void (*task)(void), void* taskStack, unsigned char priority){
+ YKEnterMutex();
  tasks[taskCount] . stack_pointer = (int*)taskStack;
  tasks[taskCount] . ready = READY;
  tasks[taskCount] . delay_count = 0;
  tasks[taskCount] . priority = priority;
  InitStack(*task);
  taskCount++;
+ YKExitMutex();
  if (running){
   YKScheduler();
  }
@@ -147,22 +151,27 @@ void YKNewTask(void (*task)(void), void* taskStack, unsigned char priority){
 
 void YKIdleTask(){
  while(1){
+  YKEnterMutex();
   YKIdleCount++;
-  NoOp(); NoOp();
+  YKExitMutex();
  }
 }
 
 
 void YKRun(){
+ YKEnterMutex();
  running = 1;
+ YKExitMutex();
  printString("Running...\n");
  YKScheduler();
 }
 
 
 void YKDelayTask(unsigned delay){
+ YKEnterMutex();
  tasks[currIndex].ready = DELAY;
  tasks[currIndex].delay_count = delay;
+ YKExitMutex();
  YKScheduler();
 }
 
@@ -173,8 +182,9 @@ void YKScheduler(){
 
  int index = 0;
  int local_currIndex;
+ YKEnterMutex();
  local_currIndex = currIndex;
- printString("Scheduling...\n");
+
 
  for (i = 1; i < taskCount; i++) {
 
@@ -184,37 +194,82 @@ void YKScheduler(){
   }
  }
  currIndex = index;
- printString("Task index: ");
- printInt(index);
- printString("\n");
+ YKExitMutex();
+
+
+
  YKDispatcher(tasks[index].stack_pointer, &(tasks[local_currIndex]));
 }
 
 
-void YKTickHandler(){
- int i;
-
- YKEnterISR();
-
- YKTickNum++;
-
- for(i = 0; i< taskCount; i++) {
-  if (tasks[i] . delay_count != 0) {
-   tasks[i] . delay_count--;
-  }
- }
-
- YKExitISR();
+void YKEnterISR(){
+ interrupt_depth++;
 }
 
-void isrHandle_tick()
+void YKExitISR(){
+ if(--interrupt_depth == 0){
+  YKScheduler();
+ }
+}
+
+
+
+extern int KeyBuffer;
+
+void YKTickHandler()
 {
 
 
+ int i;
  printNewLine();
  printString("TICK ");
- printInt(tick);
- tick++;
+ printInt(YKTickNum);
  printNewLine();
+
+ YKEnterMutex();
+ YKTickNum++;
+ for(i = 0; i< taskCount; i++) {
+  if (tasks[i] . delay_count != 0) {
+   tasks[i] . delay_count--;
+   if (tasks[i] . delay_count == 0) {
+    tasks[i] . ready = READY;
+   }
+  }
+ }
+ YKExitMutex();
+}
+
+void isrHandle_reset()
+{
+
+ exit(0);
+}
+
+
+
+void isrHandle_keyPress()
+{
+ int i = 0;
+
+ if(KeyBuffer != 'd')
+ {
+  printNewLine();
+  printString("KEYPRESS (");
+  printChar(KeyBuffer);
+  printString(") IGNORED");
+  printNewLine();
+  return;
+ }
+
+ printNewLine();
+ printString("DELAY KEY PRESSED");
+ printNewLine();
+
+
+ for(i = 0; i < 5000; i++)
+ {
+
+ }
+
  return;
 }

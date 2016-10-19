@@ -16,10 +16,8 @@ int* currTask;
 int currIndex = 0;
 int YKTickNum = 0;
 
-int YKIdleCount = 0;
+unsigned int YKIdleCount = 0;
 unsigned int taskCount = 0;
-
-int tick = 0;
 
 unsigned int interrupt_depth = 0;
 unsigned int YKCtxSwCount;
@@ -47,7 +45,7 @@ void InitStack(void (*task)(void))
 	*(tasks[taskCount].stack_pointer) = (int)task;
 	tasks[taskCount].stack_pointer--;
 	*(tasks[taskCount].stack_pointer) = (int) base_pointer;
-	for(i = 0 ; i < 7; i++)
+	for(i = 0 ; i < 8; i++)
 	{
 		tasks[taskCount].stack_pointer--;
 		//all registers should be set to 0
@@ -57,12 +55,14 @@ void InitStack(void (*task)(void))
 
 //create a new task
 void YKNewTask(void (*task)(void), void* taskStack, unsigned char priority){
+	YKEnterMutex();
 	tasks[taskCount] . stack_pointer = (int*)taskStack;
 	tasks[taskCount] . ready = READY;
 	tasks[taskCount] . delay_count = 0;
 	tasks[taskCount] . priority = priority;
 	InitStack(*task);
 	taskCount++;
+	YKExitMutex();
 	if (running){
 		YKScheduler();
 	}
@@ -71,22 +71,27 @@ void YKNewTask(void (*task)(void), void* taskStack, unsigned char priority){
 //run the idle task
 void YKIdleTask(){
 	while(1){
+		YKEnterMutex();
 		YKIdleCount++;
-		NoOp(); NoOp();
+		YKExitMutex();
 	}
 }
 
 //start the kernel
 void YKRun(){
+	YKEnterMutex();
 	running = 1;
+	YKExitMutex();
 	printString("Running...\n");
 	YKScheduler();
 }
 
 //delay
 void YKDelayTask(unsigned delay){
+	YKEnterMutex();
 	tasks[currIndex].ready = DELAY;
 	tasks[currIndex].delay_count = delay;
+	YKExitMutex();
 	YKScheduler();
 }
 
@@ -97,8 +102,9 @@ void YKScheduler(){
 	//index of highest priority task to run
 	int index = 0;
 	int local_currIndex;
+	YKEnterMutex();
 	local_currIndex = currIndex;
-	printString("Scheduling...\n");
+	//printString("Scheduling...\n");
 	//find the highest priority task and run it
 	for (i = 1; i < taskCount; i++) {
 		//if the the task is ready, and if the priority is greater than the previous
@@ -108,39 +114,83 @@ void YKScheduler(){
 		}
 	}
 	currIndex = index;
-	printString("Task index: ");
-	printInt(index);
-	printString("\n");
+	YKExitMutex();
+	//printString("Task index: ");
+	//printInt(index);
+	//printString("\n");
 	YKDispatcher(tasks[index].stack_pointer, &(tasks[local_currIndex]));
 }
 
 
-void YKTickHandler(){
-	int i;	//looping variable
-	//enter ISR
-	YKEnterISR();
-	//increment the ticks
-	YKTickNum++;
-	
-	for(i = 0; i< taskCount; i++) {
-		if (tasks[i] . delay_count != 0) {
-			tasks[i] . delay_count--;
-		}
-	}
-	//leave ISR
-	YKExitISR();
+void YKEnterISR(){
+	interrupt_depth++;
 }
 
-void isrHandle_tick()
+void YKExitISR(){
+	if(--interrupt_depth == 0){
+		YKScheduler();
+	}
+}
+
+
+
+extern int KeyBuffer;
+
+void YKTickHandler()
 {
 	//static int tick = 0;
 	//this will be the handler for the tick
+	int i;	//looping variable
 	printNewLine();            // Print carriage return and line feed
 	printString("TICK ");      	 // Print string
-	printInt(tick);
-	tick++;
+	printInt(YKTickNum);
 	printNewLine();            // Print carriage return and line feed
-	return;
+	//increment the ticks
+	YKEnterMutex();
+	YKTickNum++;
+	for(i = 0; i< taskCount; i++) {
+		if (tasks[i] . delay_count != 0) {
+			tasks[i] . delay_count--;
+			if (tasks[i] . delay_count == 0) {
+				tasks[i] . ready = READY;
+			}
+		}
+	}
+	YKExitMutex();
 }
 
+void isrHandle_reset()
+{
+	//this will be the handler for the reset
+	exit(0);
+}
+
+
+
+void isrHandle_keyPress()
+{
+	int i = 0;
+	//this will be the handler for the tick
+	if(KeyBuffer != 'd')
+	{
+		printNewLine();            // Print carriage return and line feed
+		printString("KEYPRESS (");      	 // Print string
+		printChar(KeyBuffer);
+		printString(") IGNORED");      	 // Print string
+		printNewLine();            // Print carriage return and line feed
+		return;
+	}
+
+	printNewLine();            // Print carriage return and line feed
+	printString("DELAY KEY PRESSED");      	 // Print string
+	printNewLine();            // Print carriage return and line feed
+
+
+	for(i = 0; i < 5000; i++)
+	{
+		//do nothing
+	}
+
+	return;
+}
 
